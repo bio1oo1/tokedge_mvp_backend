@@ -1,13 +1,16 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { DatabaseService } from './database.service';
+import { DataConnectService } from './data-connect.service';
 import firebaseConfig from '../config/firebase.config';
-import databaseConfig from '../config/database.config';
+import dataConnectConfig from '../config/data-connect.config';
 
 @Global()
 @Module({
-  imports: [ConfigModule.forFeature(firebaseConfig), ConfigModule.forFeature(databaseConfig)],
-  providers: [DatabaseService],
-  exports: [DatabaseService],
+  imports: [
+    ConfigModule.forFeature(firebaseConfig),
+    ConfigModule.forFeature(dataConnectConfig),
+  ],
+  providers: [DataConnectService],
+  exports: [DataConnectService],
 })
 export class DatabaseModule {}

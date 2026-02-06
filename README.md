@@ -5,8 +5,8 @@ NestJS backend API for Tok-Edge Access - a gated referral and scoring experience
 ## Tech Stack
 
 - **Framework**: NestJS
-- **Database**: Firebase Postgres (PostgreSQL)
-- **Firebase**: Firebase Admin SDK
+- **Database**: Firebase Postgres via **Firebase Data Connect** (no direct PostgreSQL connection)
+- **Firebase**: Firebase Admin SDK (Data Connect only; no Realtime Database)
 - **Validation**: class-validator, class-transformer
 
 ## Setup
@@ -16,32 +16,65 @@ NestJS backend API for Tok-Edge Access - a gated referral and scoring experience
 yarn install
 ```
 
-2. Install PostgreSQL driver (required for Firebase Postgres):
-```bash
-yarn add pg
-yarn add -D @types/pg
-```
-
-**Note**: The dependencies `firebase-admin`, `@nestjs/config`, `class-validator`, and `class-transformer` should already be installed. If not, run:
-```bash
-yarn add firebase-admin @nestjs/config class-validator class-transformer
-```
-
-3. Set up environment variables:
+2. Set up environment variables:
 ```bash
 cp .env.example .env
-# Edit .env with your Firebase and database credentials
+# Edit .env: Firebase service account and Data Connect serviceId/location
 ```
 
-4. Run database migrations:
-```bash
-# Execute database/schema.sql on your Firebase Postgres instance
-```
+3. **Firebase Data Connect** (Firebase Postgres):
+   - Ensure you have a Firebase project with Data Connect enabled and a Postgres instance (Cloud SQL).
+   - Update `dataconnect/dataconnect.yaml`: set `serviceId`, `location`, and `datasource.postgresql.cloudSql.instanceId`.
+   - Deploy schema and connector:
+   ```bash
+   firebase deploy --only dataconnect
+   ```
+   - **Generate the admin Node SDK** (required for real DB access; the app uses the generated SDK):
+   ```bash
+   firebase dataconnect:sdk:generate
+   ```
+   This overwrites the stub in `src/dataconnect-generated/` with the real typed SDK. Until you run it, the app will build but Data Connect calls will throw at runtime.
 
-5. Start development server:
+4. Start development server:
 ```bash
 yarn start:dev
 ```
+
+---
+
+## Local testing without Blaze (Data Connect emulator)
+
+You can run the app fully locally using the **Data Connect emulator** (no Blaze plan or Cloud SQL needed).
+
+1. **Install emulators** (one-time, if not already done):
+   ```bash
+   firebase init emulators
+   ```
+   Select **Data Connect** when prompted.
+
+2. **Generate the SDK** (uses your schema + connector; works with emulator):
+   ```bash
+   firebase dataconnect:sdk:generate
+   ```
+
+3. **Use the emulator** in `.env`:
+   ```bash
+   DATA_CONNECT_EMULATOR_HOST=127.0.0.1:9399
+   ```
+   (This is already set in `.env.example` for local testing.)
+
+4. **Start the Data Connect emulator** (in one terminal):
+   ```bash
+   yarn emulator:dataconnect
+   ```
+   Leave it running. It uses a local PGLite DB and serves on port 9399.
+
+5. **Start the Nest app** (in another terminal):
+   ```bash
+   yarn start:dev
+   ```
+
+The Admin SDK will use the emulator automatically when `DATA_CONNECT_EMULATOR_HOST` is set. To test against production later, remove or comment out that variable and deploy with `firebase deploy --only dataconnect`.
 
 ## API Endpoints
 
@@ -53,112 +86,55 @@ Analyze a wallet address and return scoring results.
 {
   "walletAddress": "0x...",
   "inviteCode": "ABCDEFGH",
-  "utm": {
-    "source": "twitter",
-    "medium": "social",
-    "campaign": "kol1"
-  },
-  "clientMeta": {
-    "userAgent": "...",
-    "ip": "...",
-    "gaClientId": "..."
-  }
+  "utm": { "source": "twitter", "medium": "social", "campaign": "kol1" },
+  "clientMeta": { "userAgent": "...", "ip": "...", "gaClientId": "..." }
 }
 ```
 
-**Response:**
-```json
-{
-  "userId": "uuid",
-  "rank": "Smart Money",
-  "score": 85,
-  "eligibility": true,
-  "metricsSummary": {
-    "holdingConviction": 25,
-    "tradingDiscipline": 20,
-    "realizedEdge": 28,
-    "behaviorQuality": 12,
-    "traits": ["Holds winners", "Trades with discipline", "Avoids rugs"]
-  },
-  "shareCardId": "uuid"
-}
-```
+**Response:** `userId`, `rank`, `score`, `eligibility`, `metricsSummary`, `shareCardId`
 
 ### GET /api/wallet/portfolio?userId={userId}
 Get portfolio snapshot for a user.
 
-**Response:**
-```json
-{
-  "userId": "uuid",
-  "portfolio": {...},
-  "snapshotDate": "2026-02-05T..."
-}
-```
-
 ### GET /api/invite/{inviteCode}/stats
 Get statistics for an invite code (Admin only).
-
-**Response:**
-```json
-{
-  "inviteCode": "ABCDEFGH",
-  "totalSubmissions": 150,
-  "eligibilityRate": 0.23,
-  "rankDistribution": {
-    "Smart Money": 5,
-    "Diamond Hands": 20,
-    "Degenerate": 10,
-    "Paper Hands": 80,
-    "Jeeter": 35
-  },
-  "referralDepth": 3,
-  "topReferrers": [
-    {
-      "userId": "uuid",
-      "referrals": 15
-    }
-  ]
-}
-```
 
 ## Project Structure
 
 ```
+dataconnect/                 # Firebase Data Connect
+├── dataconnect.yaml        # Service and schema config
+├── schema/
+│   └── schema.gql          # GraphQL schema (tables)
+└── connector/
+    ├── connector.yaml      # Connector + admin SDK generation
+    ├── invite-codes.gql    # Queries/mutations for invite codes
+    ├── users.gql
+    ├── portfolio-snapshots.gql
+    └── events.gql
+
 src/
-├── config/              # Configuration files
-├── common/              # Shared enums and utilities
-│   └── enums/
-├── database/            # Database module and entities
-│   ├── entities/
-│   ├── database.module.ts
-│   └── database.service.ts
-├── wallet/              # Wallet module
-│   ├── dto/
-│   ├── wallet.controller.ts
-│   ├── wallet.service.ts
-│   ├── wallet-scoring.service.ts
-│   └── wallet.module.ts
-├── invite/              # Invite module
-│   ├── dto/
-│   ├── invite.controller.ts
-│   ├── invite-code.service.ts
-│   └── invite.module.ts
+├── dataconnect-generated/  # Generated by firebase dataconnect:sdk:generate (stub until then)
+├── config/
+├── database/
+│   ├── data-connect.service.ts   # Uses generated SDK from @tokedge/dataconnect-generated
+│   └── database.module.ts
+├── wallet/
+├── invite/
 ├── app.module.ts
 └── main.ts
 ```
 
 ## Environment Variables
 
-See `.env.example` for required environment variables.
+See `.env.example`. Key variables:
 
-## Database Schema
-
-See `database/schema.sql` for the complete database schema.
+- **Firebase**: `FIREBASE_PROJECT_ID`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_CLIENT_EMAIL` (or use a service account JSON).
+- **Data Connect**: `DATA_CONNECT_SERVICE_ID`, `DATA_CONNECT_LOCATION`, `DATA_CONNECT_CONNECTOR`.
 
 ## Notes
 
-- Wallet addresses are normalized to lowercase and hashed for privacy
-- Invite codes are 8 characters, uppercase, A-Z excluding I and O
-- Scoring results are cached permanently for the campaign
-- Portfolio data is cached for 1-6 hours (configurable)
+- All database access uses the **generated Data Connect SDK** (`@tokedge/dataconnect-generated`). Run `firebase dataconnect:sdk:generate` to generate it from the `.gql` operations in `dataconnect/connector/`. There is no direct PostgreSQL connection and no Realtime Database.
+- Wallet addresses are normalized to lowercase and hashed for privacy.
+- Invite codes are 8 characters, uppercase, A-Z excluding I and O.
+- After changing `dataconnect/schema/*.gql` or connector, redeploy with `firebase deploy --only dataconnect` and optionally regenerate the SDK.

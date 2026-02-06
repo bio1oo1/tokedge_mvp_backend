@@ -1,0 +1,12 @@
+# Admin-only: invite codes (NO_ACCESS = backend only)
+
+query FindInviteCodeByCode($code: String!) @auth(level: NO_ACCESS) {
+  inviteCodes(where: { code: { eq: $code } }, limit: 1) {
+    id
+    code
+  }
+}
+
+mutation InsertInviteCode($code: String!, $createdByUserId: UUID, $sourceKol: String) @auth(level: NO_ACCESS) {
+  inviteCode_insert(data: { code: $code, createdByUserId: $createdByUserId, sourceKol: $sourceKol })
+}

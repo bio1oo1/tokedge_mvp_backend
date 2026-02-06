@@ -1,0 +1,18 @@
+# Firebase Data Connect - Tok-Edge Access
+# See: https://firebase.google.com/docs/data-connect/configuration-reference
+specVersion: "v1beta"
+serviceId: tokedge-access
+location: us-central1
+
+schema:
+  source: ./schema
+
+datasource:
+  postgresql:
+    database: tokedge
+    cloudSql:
+      instanceId: YOUR_CLOUD_SQL_INSTANCE_ID
+
+# connectorDirs: list the directories that contain connector.yaml and .gql operations
+connectorDirs:
+  - ./connector

@@ -1,69 +1,61 @@
 import { Injectable } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
+import { DataConnectService } from '../database/data-connect.service';
 
 @Injectable()
 export class InviteCodeService {
-  // Alphabet: A-Z excluding I and O
   private readonly ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(private readonly dataConnect: DataConnectService) {}
 
   async generateInviteCode(createdBy?: string, sourceKol?: string): Promise<string> {
-    const pgPool = this.databaseService.getPgPool();
     let code: string;
     let exists = true;
 
-    // Generate unique 8-character code
     while (exists) {
       code = this.generateRandomCode();
-      const result = await pgPool.query('SELECT id FROM invite_codes WHERE code = $1', [code]);
-      exists = result.rows.length > 0;
+      const existing = await this.dataConnect.findInviteCodeByCode(code);
+      exists = !!existing;
     }
 
-    // Insert invite code
-    const result = await pgPool.query(
-      'INSERT INTO invite_codes (code, created_by, source_kol) VALUES ($1, $2, $3) RETURNING id',
-      [code, createdBy || null, sourceKol || null],
-    );
-
+    await this.dataConnect.insertInviteCode({
+      code,
+      createdByUserId: createdBy ?? null,
+      sourceKol: sourceKol ?? null,
+    });
     return code;
   }
 
   async getInviteStats(inviteCode: string) {
-    const pgPool = this.databaseService.getPgPool();
-
-    // Get all users referred by this invite code (direct and indirect)
-    const referralTree = await this.getReferralTree(inviteCode, pgPool);
+    const referralTree = await this.getReferralTree(inviteCode.toUpperCase());
 
     const totalSubmissions = referralTree.length;
     const eligibleCount = referralTree.filter((u) => u.eligibility).length;
     const eligibilityRate = totalSubmissions > 0 ? eligibleCount / totalSubmissions : 0;
 
-    // Rank distribution
     const rankDistribution: Record<string, number> = {};
-    referralTree.forEach((user) => {
-      rankDistribution[user.rank] = (rankDistribution[user.rank] || 0) + 1;
+    referralTree.forEach((user: Record<string, unknown>) => {
+      const rank = String(user.rank ?? '');
+      rankDistribution[rank] = (rankDistribution[rank] || 0) + 1;
     });
 
-    // Calculate referral depth
-    const depth = this.calculateReferralDepth(inviteCode, referralTree);
+    const depth = this.calculateReferralDepth(inviteCode.toUpperCase(), referralTree);
 
-    // Top referrers
     const referrerCounts: Record<string, number> = {};
-    referralTree.forEach((user) => {
-      if (user.invite_code_issued) {
-        referrerCounts[user.id] = (referrerCounts[user.id] || 0) + 1;
+    referralTree.forEach((user: Record<string, unknown>) => {
+      const uid = user.id as string;
+      if (user.inviteCodeIssued && uid) {
+        referrerCounts[uid] = (referrerCounts[uid] || 0) + 1;
       }
     });
 
     const topReferrers = Object.entries(referrerCounts)
-      .map(([userId, count]) => ({ userId, referrals: count }))
+      .map(([userId, referrals]) => ({ userId, referrals }))
       .sort((a, b) => b.referrals - a.referrals)
       .slice(0, 10);
 
     return {
-      inviteCode,
-      totalSubmissions: totalSubmissions,
+      inviteCode: inviteCode.toUpperCase(),
+      totalSubmissions,
       eligibilityRate: Math.round(eligibilityRate * 100) / 100,
       rankDistribution,
       referralDepth: depth,
@@ -79,56 +71,39 @@ export class InviteCodeService {
     return code;
   }
 
-  private async getReferralTree(
-    rootInviteCode: string,
-    pgPool: any,
-  ): Promise<any[]> {
-    // Get all users directly referred by this code
-    const directRefs = await pgPool.query(
-      'SELECT * FROM users WHERE referred_by_invite_code = $1',
-      [rootInviteCode],
-    );
+  private async getReferralTree(rootInviteCode: string): Promise<Record<string, unknown>[]> {
+    const directRefs = await this.dataConnect.findUsersByReferredByInviteCode(rootInviteCode);
+    let all: Record<string, unknown>[] = [...directRefs];
 
-    let allUsers = [...directRefs.rows];
-
-    // Recursively get all indirect referrals
-    for (const user of directRefs.rows) {
-      if (user.invite_code_issued) {
-        const indirectRefs = await this.getReferralTree(user.invite_code_issued, pgPool);
-        allUsers = [...allUsers, ...indirectRefs];
+    for (const user of directRefs) {
+      const issued = user.inviteCodeIssued as string | undefined;
+      if (issued) {
+        const indirect = await this.getReferralTree(issued);
+        all = [...all, ...indirect];
       }
     }
-
-    return allUsers;
+    return all;
   }
 
-  private calculateReferralDepth(rootInviteCode: string, referralTree: any[]): number {
-    // Build a map of invite codes to users
-    const codeToUser = new Map<string, any>();
-    referralTree.forEach((user) => {
-      if (user.invite_code_issued) {
-        codeToUser.set(user.invite_code_issued, user);
-      }
+  private calculateReferralDepth(rootInviteCode: string, referralTree: Record<string, unknown>[]): number {
+    const codeToUser = new Map<string, Record<string, unknown>>();
+    referralTree.forEach((u) => {
+      const code = u.inviteCodeIssued as string | undefined;
+      if (code) codeToUser.set(code, u);
     });
 
-    // Find maximum depth
     let maxDepth = 0;
-
-    const calculateDepth = (code: string, currentDepth: number): number => {
+    const calc = (code: string, d: number): number => {
       const user = codeToUser.get(code);
-      if (!user || !user.invite_code_issued) {
-        return currentDepth;
-      }
-      return calculateDepth(user.invite_code_issued, currentDepth + 1);
+      if (!user || !user.inviteCodeIssued) return d;
+      return calc(user.inviteCodeIssued as string, d + 1);
     };
 
-    referralTree.forEach((user) => {
-      if (user.referred_by_invite_code === rootInviteCode && user.invite_code_issued) {
-        const depth = calculateDepth(user.invite_code_issued, 1);
-        maxDepth = Math.max(maxDepth, depth);
+    referralTree.forEach((u) => {
+      if (u.referredByInviteCode === rootInviteCode && u.inviteCodeIssued) {
+        maxDepth = Math.max(maxDepth, calc(u.inviteCodeIssued as string, 1));
       }
     });
-
     return maxDepth;
   }
 }

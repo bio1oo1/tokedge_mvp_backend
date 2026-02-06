@@ -1,0 +1,83 @@
+# Admin-only: users (NO_ACCESS = backend only)
+
+query FindUserByWalletHash($hash: String!) @auth(level: NO_ACCESS) {
+  users(where: { walletAddressHash: { eq: $hash } }, limit: 1) {
+    id
+    walletAddress
+    walletAddressHash
+    inviteCodeIssued
+    referredByInviteCode
+    rank
+    score
+    eligibility
+    shareCompleted
+    utmSource
+    utmMedium
+    utmCampaign
+    gaClientId
+    createdAt
+  }
+}
+
+query FindUserById($id: UUID!) @auth(level: NO_ACCESS) {
+  user(key: { id: $id }) {
+    id
+    walletAddress
+    walletAddressHash
+    inviteCodeIssued
+    referredByInviteCode
+    rank
+    score
+    eligibility
+    shareCompleted
+    utmSource
+    utmMedium
+    utmCampaign
+    gaClientId
+    createdAt
+  }
+}
+
+query FindUsersByReferredByInviteCode($code: String!) @auth(level: NO_ACCESS) {
+  users(where: { referredByInviteCode: { eq: $code } }) {
+    id
+    inviteCodeIssued
+    referredByInviteCode
+    rank
+    eligibility
+  }
+}
+
+mutation InsertUser(
+  $walletAddress: String!
+  $walletAddressHash: String!
+  $inviteCodeIssued: String
+  $referredByInviteCode: String!
+  $rank: String!
+  $score: Int!
+  $eligibility: Boolean!
+  $shareCompleted: Boolean!
+  $utmSource: String
+  $utmMedium: String
+  $utmCampaign: String
+  $gaClientId: String
+) @auth(level: NO_ACCESS) {
+  user_insert(data: {
+    walletAddress: $walletAddress
+    walletAddressHash: $walletAddressHash
+    inviteCodeIssued: $inviteCodeIssued
+    referredByInviteCode: $referredByInviteCode
+    rank: $rank
+    score: $score
+    eligibility: $eligibility
+    shareCompleted: $shareCompleted
+    utmSource: $utmSource
+    utmMedium: $utmMedium
+    utmCampaign: $utmCampaign
+    gaClientId: $gaClientId
+  })
+}
+
+mutation UpdateUserInviteCodeIssued($id: UUID!, $inviteCodeIssued: String!) @auth(level: NO_ACCESS) {
+  user_update(id: $id, data: { inviteCodeIssued: $inviteCodeIssued })
+}

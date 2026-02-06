@@ -1,0 +1,13 @@
+# Admin-only: portfolio snapshots (NO_ACCESS = backend only)
+
+query FindLatestPortfolioByUserId($userId: UUID!) @auth(level: NO_ACCESS) {
+  portfolioSnapshots(where: { userId: { eq: $userId } }, orderBy: [{ createdAt: DESC }], limit: 1) {
+    id
+    snapshotJson
+    createdAt
+  }
+}
+
+mutation InsertPortfolioSnapshot($userId: UUID!, $snapshotJson: String!) @auth(level: NO_ACCESS) {
+  portfolioSnapshot_insert(data: { userId: $userId, snapshotJson: $snapshotJson })
+}

@@ -55,3 +55,6 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 serviceAccount.json
+
+# Firebase Data Connect CLI-generated cache (do not edit; regenerated on deploy/sdk:generate)
+dataconnect/.dataconnect/

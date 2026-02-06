@@ -1,0 +1,42 @@
+# Tok-Edge Access - Data Connect Schema
+# Maps to Firebase Postgres (Cloud SQL for PostgreSQL)
+
+type InviteCode @table(key: "id") {
+  id: UUID! @default(expr: "uuidV4()")
+  code: String! @col(dataType: "varchar(8)")
+  createdByUserId: UUID
+  sourceKol: String @col(dataType: "varchar(255)")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type User @table(key: "id") {
+  id: UUID! @default(expr: "uuidV4()")
+  walletAddress: String! @col(dataType: "varchar(42)")
+  walletAddressHash: String! @col(dataType: "varchar(64)")
+  inviteCodeIssued: String @col(dataType: "varchar(8)")
+  referredByInviteCode: String @col(dataType: "varchar(8)")
+  rank: String! @col(dataType: "varchar(50)")
+  score: Int!
+  eligibility: Boolean! @default(value: false)
+  shareCompleted: Boolean! @default(value: false)
+  utmSource: String @col(dataType: "varchar(255)")
+  utmMedium: String @col(dataType: "varchar(255)")
+  utmCampaign: String @col(dataType: "varchar(255)")
+  gaClientId: String @col(dataType: "varchar(255)")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type PortfolioSnapshot @table(key: "id") {
+  id: UUID! @default(expr: "uuidV4()")
+  user: User!
+  snapshotJson: String! @col(dataType: "jsonb")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type Event @table(key: "id") {
+  id: UUID! @default(expr: "uuidV4()")
+  user: User
+  eventType: String! @col(dataType: "varchar(50)")
+  metadata: String @col(dataType: "jsonb")
+  createdAt: Timestamp! @default(expr: "request.time")
+}

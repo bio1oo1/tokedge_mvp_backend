@@ -1,0 +1,8 @@
+# Tok-Edge Access connector - admin SDK for NestJS backend only
+connectorId: default
+
+generate:
+  adminNodeSdk:
+    outputDir: ../../src/dataconnect-generated
+    package: "@tokedge/dataconnect-generated"
+    packageJsonDir: ../..

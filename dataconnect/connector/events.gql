@@ -1,0 +1,5 @@
+# Admin-only: events (NO_ACCESS = backend only)
+
+mutation InsertEvent($userId: UUID, $eventType: String!, $metadata: String) @auth(level: NO_ACCESS) {
+  event_insert(data: { userId: $userId, eventType: $eventType, metadata: $metadata })
+}
