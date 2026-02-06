@@ -12,30 +12,26 @@ NestJS backend API for Tok-Edge Access - a gated referral and scoring experience
 ## Setup
 
 1. Install dependencies:
+
 ```bash
 yarn install
 ```
 
-2. Set up environment variables:
+1. Set up environment variables:
+
 ```bash
 cp .env.example .env
 # Edit .env: Firebase service account and Data Connect serviceId/location
 ```
 
-3. **Firebase Data Connect** (Firebase Postgres):
-   - Ensure you have a Firebase project with Data Connect enabled and a Postgres instance (Cloud SQL).
-   - Update `dataconnect/dataconnect.yaml`: set `serviceId`, `location`, and `datasource.postgresql.cloudSql.instanceId`.
-   - Deploy schema and connector:
-   ```bash
-   firebase deploy --only dataconnect
-   ```
-   - **Generate the admin Node SDK** (required for real DB access; the app uses the generated SDK):
-   ```bash
-   firebase dataconnect:sdk:generate
-   ```
+1. **Firebase Data Connect** (Firebase Postgres):
+  - Ensure you have a Firebase project with Data Connect enabled and a Postgres instance (Cloud SQL).
+  - Update `dataconnect/dataconnect.yaml`: set `serviceId`, `location`, and `datasource.postgresql.cloudSql.instanceId`.
+  - Deploy schema and connector:
+  - **Generate the admin Node SDK** (required for real DB access; the app uses the generated SDK):
    This overwrites the stub in `src/dataconnect-generated/` with the real typed SDK. Until you run it, the app will build but Data Connect calls will throw at runtime.
+2. Start development server:
 
-4. Start development server:
 ```bash
 yarn start:dev
 ```
@@ -47,41 +43,39 @@ yarn start:dev
 You can run the app fully locally using the **Data Connect emulator** (no Blaze plan or Cloud SQL needed).
 
 1. **Install emulators** (one-time, if not already done):
-   ```bash
+  ```bash
    firebase init emulators
-   ```
+  ```
    Select **Data Connect** when prompted.
-
 2. **Generate the SDK** (uses your schema + connector; works with emulator):
-   ```bash
+  ```bash
    firebase dataconnect:sdk:generate
-   ```
-
+  ```
 3. **Use the emulator** in `.env`:
-   ```bash
+  ```bash
    DATA_CONNECT_EMULATOR_HOST=127.0.0.1:9399
-   ```
+  ```
    (This is already set in `.env.example` for local testing.)
-
 4. **Start the Data Connect emulator** (in one terminal):
-   ```bash
+  ```bash
    yarn emulator:dataconnect
-   ```
+  ```
    Leave it running. It uses a local PGLite DB and serves on port 9399.
-
 5. **Start the Nest app** (in another terminal):
-   ```bash
+  ```bash
    yarn start:dev
-   ```
+  ```
 
 The Admin SDK will use the emulator automatically when `DATA_CONNECT_EMULATOR_HOST` is set. To test against production later, remove or comment out that variable and deploy with `firebase deploy --only dataconnect`.
 
 ## API Endpoints
 
 ### POST /api/wallet/analyze
+
 Analyze a wallet address and return scoring results.
 
 **Request Body:**
+
 ```json
 {
   "walletAddress": "0x...",
@@ -94,9 +88,11 @@ Analyze a wallet address and return scoring results.
 **Response:** `userId`, `rank`, `score`, `eligibility`, `metricsSummary`, `shareCardId`
 
 ### GET /api/wallet/portfolio?userId={userId}
+
 Get portfolio snapshot for a user.
 
 ### GET /api/invite/{inviteCode}/stats
+
 Get statistics for an invite code (Admin only).
 
 ## Project Structure
@@ -138,3 +134,4 @@ See `.env.example`. Key variables:
 - Wallet addresses are normalized to lowercase and hashed for privacy.
 - Invite codes are 8 characters, uppercase, A-Z excluding I and O.
 - After changing `dataconnect/schema/*.gql` or connector, redeploy with `firebase deploy --only dataconnect` and optionally regenerate the SDK.
+

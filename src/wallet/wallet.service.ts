@@ -4,14 +4,20 @@ import { Rank } from '../common/enums/rank.enum';
 import { EventType } from '../common/enums/event-type.enum';
 import { WalletScoringService } from './wallet-scoring.service';
 import { InviteCodeService } from '../invite/invite-code.service';
+import { NansenService, WalletData } from './nansen.service';
+import { CacheService } from '../common/cache.service';
 import * as crypto from 'crypto';
 
 @Injectable()
 export class WalletService {
+  private readonly WALLET_DATA_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+
   constructor(
     private readonly dataConnect: DataConnectService,
     private readonly walletScoringService: WalletScoringService,
     private readonly inviteCodeService: InviteCodeService,
+    private readonly nansenService: NansenService,
+    private readonly cacheService: CacheService,
   ) {}
 
   async analyzeWallet(
@@ -37,7 +43,20 @@ export class WalletService {
     if (user) {
       userId = user.id as string;
     } else {
-      const walletData = await this.fetchWalletData(walletAddress);
+      // Check cache first
+      const cacheKey = `wallet_data:${walletHash}`;
+      let cachedWalletData = this.cacheService.get<WalletData>(cacheKey);
+      
+      // Fetch wallet data (from cache or Nansen)
+      const walletData: WalletData = cachedWalletData 
+        ? cachedWalletData
+        : await this.nansenService.fetchWalletData(walletAddress);
+      
+      // Cache if we just fetched it
+      if (!cachedWalletData) {
+        this.cacheService.set(cacheKey, walletData, this.WALLET_DATA_CACHE_TTL);
+      }
+
       const scoringResult = await this.walletScoringService.scoreWallet(
         walletAddress,
         walletData,
@@ -66,7 +85,7 @@ export class WalletService {
         await this.dataConnect.updateUserInviteCodeIssued(userId, newInviteCode);
       }
 
-      await this.dataConnect.insertPortfolioSnapshot(userId, walletData);
+      await this.dataConnect.insertPortfolioSnapshot(userId, walletData as unknown as Record<string, unknown>);
       await this.dataConnect.insertEvent(userId, EventType.WALLET_ANALYZED, {
         inviteCode: validInviteCode,
         score: scoringResult.score,
@@ -76,7 +95,25 @@ export class WalletService {
     }
 
     user = (user ?? (await this.dataConnect.findUserById(userId))) as Record<string, any>;
-    const shareCardId = crypto.randomUUID();
+    
+    // Get scoring result for metrics (re-score to get detailed metrics)
+    const cacheKey = `wallet_data:${walletHash}`;
+    let walletData: WalletData | null = this.cacheService.get<WalletData>(cacheKey);
+    
+    if (!walletData) {
+      // If not cached, fetch fresh data
+      walletData = await this.nansenService.fetchWalletData(walletAddress);
+      this.cacheService.set(cacheKey, walletData, this.WALLET_DATA_CACHE_TTL);
+    }
+    
+    const scoringResult = await this.walletScoringService.scoreWallet(
+      walletAddress,
+      walletData,
+    );
+    
+    // Generate deterministic shareCardId based on userId (same user = same shareCardId)
+    // Using a deterministic UUID v5 approach: hash userId to create consistent shareCardId
+    const shareCardId = this.generateShareCardId(userId);
 
     return {
       userId: user.id,
@@ -84,10 +121,10 @@ export class WalletService {
       score: user.score,
       eligibility: user.eligibility,
       metricsSummary: {
-        holdingConviction: 0,
-        tradingDiscipline: 0,
-        realizedEdge: 0,
-        behaviorQuality: 0,
+        holdingConviction: Math.round(scoringResult.metrics.holdingConviction),
+        tradingDiscipline: Math.round(scoringResult.metrics.tradingDiscipline),
+        realizedEdge: Math.round(scoringResult.metrics.realizedEdge),
+        behaviorQuality: Math.round(scoringResult.metrics.behaviorQuality),
         traits: this.getTraitsForRank(user.rank as Rank),
       },
       shareCardId,
@@ -106,22 +143,23 @@ export class WalletService {
     };
   }
 
-  private async fetchWalletData(walletAddress: string): Promise<Record<string, any>> {
-    return {
-      address: walletAddress,
-    };
-  }
 
   private determineRank(scoringResult: any): Rank {
-    const { score, metrics } = scoringResult;
+    const { score } = scoringResult;
     if (score < 70 || !scoringResult.meetsMinimumThresholds) {
-      if (metrics.insufficientData) return Rank.INSUFFICIENT_DATA;
-      if (metrics.extremeChurn && metrics.poorEdge) return Rank.JEETER;
+      if (scoringResult.insufficientData) return Rank.INSUFFICIENT_DATA;
+      if (scoringResult.extremeChurn && scoringResult.poorEdge) return Rank.JEETER;
       return Rank.PAPER_HANDS;
     }
-    if (metrics.highConviction && metrics.positiveEdge && !metrics.panicSelling) return Rank.SMART_MONEY;
-    if (metrics.highConviction && metrics.positiveEdge) return Rank.DIAMOND_HANDS;
-    if (metrics.strongEdge && metrics.higherChurn) return Rank.DEGENERATE;
+    if (scoringResult.highConviction && scoringResult.positiveEdge && !scoringResult.panicSelling) {
+      return Rank.SMART_MONEY;
+    }
+    if (scoringResult.highConviction && scoringResult.positiveEdge) {
+      return Rank.DIAMOND_HANDS;
+    }
+    if (scoringResult.strongEdge && scoringResult.higherChurn) {
+      return Rank.DEGENERATE;
+    }
     return Rank.PAPER_HANDS;
   }
 
@@ -135,5 +173,27 @@ export class WalletService {
       [Rank.INSUFFICIENT_DATA]: [],
     };
     return traitsMap[rank] || [];
+  }
+
+  /**
+   * Generate a deterministic shareCardId from userId.
+   * Same userId always produces the same shareCardId.
+   * Uses SHA-256 hash of userId with a namespace, formatted as UUID-like string.
+   */
+  private generateShareCardId(userId: string): string {
+    // Use a fixed namespace for shareCardId generation
+    const namespace = 'tokedge-sharecard-namespace';
+    const hash = crypto.createHash('sha256');
+    hash.update(namespace + userId);
+    const hashHex = hash.digest('hex');
+    
+    // Format first 32 chars as UUID-like string (8-4-4-4-12)
+    return [
+      hashHex.substring(0, 8),
+      hashHex.substring(8, 12),
+      hashHex.substring(12, 16),
+      hashHex.substring(16, 20),
+      hashHex.substring(20, 32),
+    ].join('-');
   }
 }
